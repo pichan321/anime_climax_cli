@@ -97,6 +97,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .long("download_all")
         .takes_value(true)
         .required(false)
+    ).arg(
+        Arg::with_name("single_clip")
+        .long("sc")
+        .takes_value(true)
+        .conflicts_with_all(&["search", "clips", "page", "download_all"])
     )
     
     ;
@@ -117,6 +122,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = app.get_matches();
     
     let mut all_animes: Vec<Anime> = reqwest::get("https://anime-climax-api.onrender.com/anime/animes?all=true").await?.json().await?;
+    
+    if let Some(sc) = matches.value_of("single_clip") {
+        let clip_metadata: Clip = reqwest::get(format!("https://anime-climax-api.onrender.com/clip/{}", sc)).await?.json().await?;
+        download_video(clip_metadata.link).await;
+        exit(0);
+    }
+
+
     if let Some(s) = matches.value_of("search") {
         
         for anime in all_animes {
@@ -136,9 +149,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let resp: Clips = reqwest::get(format!("https://anime-climax-api.onrender.com/anime/{}/clips?page=1", &c)).await?.json().await?;
             print_clips(&resp);
         }
+
+        exit(0);
+
     }
 
     if let Some(da) = matches.value_of("download_all_clips")  {
+        if matches.is_present("page") {
+            if let Some(p) = matches.value_of("page") {
+                let clips: Clips= reqwest::get(format!("https://anime-climax-api.onrender.com/anime/{}/clips?page={}",  da, p)).await.unwrap().json().await.unwrap();
+                let mut handles = Vec::new();
+                for clip in clips.data {
+                    // println!("{}. {}", &clip.id, &clip.caption);
+    
+                    let handle = tokio::spawn(download_video(clip.link.clone()));
+                    handles.push(handle);
+                }
+                
+                for handle in handles {
+                    handle.await.unwrap();
+                }
+
+                exit(0);
+            }
+
+            
+
+        }
+
         let mut current = 1 as i64;
 
         let clips: Clips= reqwest::get(format!("https://anime-climax-api.onrender.com/anime/{}/clips?page=1",  da)).await.unwrap().json().await.unwrap();
